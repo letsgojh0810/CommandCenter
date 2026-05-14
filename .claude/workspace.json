@@ -4,7 +4,9 @@
   "projects": {
     "required": [],
     "optional": [
-      { "repo": "hubtwork/loopers-blog-articles", "desc": "루퍼스 인블로그 아티클 저장소" }
+      { "repo": "hubtwork/loopers-blog-articles", "desc": "루퍼스 인블로그 아티클 저장소" },
+      { "repo": "letsgojh0810/commerce-backend", "desc": "커머스 백엔드" },
+      { "repo": "letsgojh0810/commerce-frontend", "desc": "커머스 프론트엔드" }
     ]
   }
 }
