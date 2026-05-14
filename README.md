@@ -1,7 +1,7 @@
 # Commerce Hub — Command Center
 
 <!-- deployed-url:start -->
-🌐 **Knowledge Graph**: https://letsgojh0810.github.io/commerce-hub/
+🌐 **Live demo**: https://letsgojh0810.github.io/commerce-hub/
 <!-- deployed-url:end -->
 
 커머스 서비스의 **도메인 지식·비즈니스 정책·코드 위치**를 한 곳에서 관리하는 AI 기반 팀 공용 작업 공간입니다. PO·디자이너·FE·BE 누구든 Claude Code를 통해 같은 방식으로 작업합니다.
