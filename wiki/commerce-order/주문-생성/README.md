@@ -1,71 +1,48 @@
 # 주문 생성
 
-> 작성일: 2026-05-13 | 수정일: 2026-05-13 | 유형: 정책 | 관련 레포: example-order-api
+> 작성일: 2026-05-14 | 수정일: 2026-05-14 | 유형: 정책 | 관련 레포: letsgojh0810/commerce-backend
 
-## 개요
+## POST /api/v1/orders 흐름
 
-장바구니 데이터를 받아 정식 주문으로 확정하는 과정을 다룹니다. 가격이 결제 시점에 달라지지 않도록 보장하고, 재고를 미리 점유하며, 쿠폰을 적용한 최종 금액을 계산해 결제 처리로 인계합니다.
+주문 생성은 다음 단계를 순서대로 수행합니다.
 
-## 시나리오
+1. **대기열 토큰 검증** (optional): Redis `queue:token:{userId}` 키 존재 여부를 확인합니다. 대기열이 활성화된 경우에만 검증합니다.
+2. **재고 차감**: `product.decreaseStock()`을 호출하여 상품 재고를 차감합니다. 재고 부족 시 주문 생성을 중단합니다.
+3. **쿠폰 검증·사용**: 쿠폰 유효성(유효 기간, 최소 주문 금액, totalLimit 등)을 검증하고 UserCoupon 상태를 `USED`로 전환합니다.
+4. **Order / OrderItem 생성**: `orders` 테이블에 Order(상태 `PENDING_PAYMENT`)를, `order_items` 테이블에 OrderItem 스냅샷을 저장합니다.
+5. **OutboxEvent 저장**: 트랜잭션 BEFORE_COMMIT 시점에 `outbox_events` 테이블에 이벤트를 기록합니다.
+6. **대기열 토큰 삭제**: Redis에서 `queue:token:{userId}` 및 `queue:token:hard:{userId}` 키를 삭제합니다.
 
-1. 구매자가 결제 페이지에서 "결제하기"를 누르면 `POST /orders`가 호출됩니다.
-2. 서버는 다음을 순서대로 수행합니다:
-   - **가격 재검증**: 각 라인 아이템의 현재 노출 가격을 catalog 도메인에서 조회. 장바구니 가격과 다르면 사용자에게 알림 → 사용자가 새 가격에 동의해야 진행.
-   - **재고 점유 요청**: inventory 도메인에 라인별 수량 점유 요청. 실패 시(재고 부족) 주문 생성 중단.
-   - **쿠폰 검증·할인 계산**: 쿠폰 정책 조회, 사용 조건 검증, 할인 금액 계산.
-   - **order 레코드 생성**: 상태 `pending`, 결제 대기.
-3. `commerce.order.created` 이벤트 발행.
-4. 결제 처리로 인계(`triggers payment-processing`).
+Scheduler가 1초 주기로 outbox_events를 읽어 Kafka order-events 토픽으로 발행합니다.
 
-## 가격 재검증 규칙
+## 주문 취소
 
-장바구니에 담은 시점과 결제 시점의 가격이 다르면 다음 정책을 따릅니다:
+`POST /api/v1/orders/{orderId}/cancel`
 
-- **가격 인하**: 자동으로 새 가격 반영, 사용자 알림 ("더 저렴해졌어요")
-- **가격 인상**: 사용자 확인 필수. 동의해야 주문 진행.
-- **품절·노출 중단**: 해당 라인 자동 제외, 사용자가 결제 진행 여부 결정.
+주문 취소 시 다음 작업을 수행합니다.
 
-## 재고 점유
+- 재고 복구: `product.increaseStock()`
+- 쿠폰 복구: UserCoupon 상태를 `AVAILABLE`로 복원
+- OutboxEvent 저장: `OrderCancelledEvent`를 outbox_events에 기록 → Kafka 발행
 
-재고는 inventory 도메인이 관리합니다. 주문 생성 시 점유(`reserve`) API를 호출하고, 결제 완료 시 확정(`commit`)으로 전환됩니다. 결제 실패·취소 시 점유는 자동 해제(`release`)됩니다.
+## OrderItem 스냅샷
 
-점유 자체는 짧은 TTL을 가집니다(기본 15분). 결제 완료 또는 명시적 취소가 그 시간 내에 일어나지 않으면 자동 해제되어 다른 사용자가 구매 가능합니다.
+주문 시점의 상품 정보를 `order_items` 테이블에 고정 저장합니다.
 
-cross-domain 관계는 `cross-domain.yaml`에 정의됩니다(PR #5에서 추가).
+| 필드 | 설명 |
+|------|------|
+| `productId` | 상품 식별자 |
+| `brandName` | 브랜드명 (주문 시점 기준) |
+| `productName` | 상품명 (주문 시점 기준) |
+| `price` | 단가 (주문 시점 기준) |
+| `quantity` | 수량 |
 
-## 멱등성
+이후 상품 정보(가격, 이름 등)가 변경되어도 주문 기록은 원본 값을 유지합니다.
 
-같은 사용자가 같은 장바구니 상태에서 "결제하기"를 두 번 누르는 일이 빈번합니다. `Idempotency-Key` 헤더를 받아 동일 키로 들어오는 요청은 같은 주문을 반환하고, 중복 주문을 만들지 않습니다.
+## 주문 상태 흐름
 
-키는 클라이언트가 결제 페이지 진입 시 1회 생성하여 24시간 유지합니다.
-
-## 이벤트 스키마
-
-`commerce.order.created`:
-
-```json
-{
-  "event_id": "uuid",
-  "order_id": 98765,
-  "buyer_id": 12345,
-  "lines": [
-    { "product_id": 111, "quantity": 2, "unit_price": 19900 }
-  ],
-  "total_amount": 39800,
-  "applied_coupon_id": 7,
-  "discount_amount": 2000,
-  "occurred_at": "2026-05-13T10:30:00Z"
-}
 ```
-
-다운스트림: 재고(확정 전환 트리거), 정산(예정 매출 집계), CRM(주문 알림 발송).
-
-## 의사결정 배경
-
-- **왜 가격 재검증을 결제 시점에 하는가**: 장바구니에 머무는 시간이 길면 가격·재고가 바뀝니다. 결제 전에 한 번 더 검증해서 사용자가 "결제 후 실제 가격이 다르더라"는 경험을 막습니다.
-- **왜 재고 점유에 TTL이 있는가**: 점유한 채 결제를 중단하는 사용자가 많으면 인기 상품의 재고가 묶여 다른 사용자가 살 수 없게 됩니다. TTL로 자동 회수해 재고 효율을 유지합니다.
-- **왜 클라이언트가 Idempotency-Key를 생성하는가**: 서버가 생성하면 사용자가 새로고침했을 때 키가 달라져 중복 주문이 생깁니다. 결제 페이지 진입 시 1회 생성된 키가 새로고침에도 살아남아야 합니다.
-
-## 관련 entity
-
-`order-placement`, `order`, `coupon` — `ontology/abox/commerce-order.yaml` 참조
+PENDING_PAYMENT
+    ├── 결제 성공 → PAID
+    └── 취소 → CANCELLED
+```

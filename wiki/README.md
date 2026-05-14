@@ -1,18 +1,27 @@
-# Command Center 컨텍스트
+# Commerce Hub Wiki
 
-도메인 지식, 아키텍처, 용어 사전을 정리하는 공간입니다.
+Commerce Hub 프로젝트의 비즈니스 정책 문서 인덱스입니다.
 
-## 도메인
+## 도메인 목록
 
-> 아래는 **이커머스 영역의 예제 도메인**입니다. 이 템플릿을 가져간 팀은 학습 후 삭제하고 자기 팀 도메인으로 교체하세요. (자세한 정리 방법은 루트 [README.md](../README.md#step-5-예제-도메인--우리-팀-도메인))
-
-| 도메인 | 설명 | 상세 |
+| 도메인 | 설명 | 문서 |
 |--------|------|------|
-| `commerce-catalog` | 상품 등록·카테고리·가격·검색 노출 | [README](commerce-catalog/README.md) · [architecture](commerce-catalog/architecture.md) |
-| `commerce-order` | 주문 생성·결제·환불·쿠폰 | [README](commerce-order/README.md) · [architecture](commerce-order/architecture.md) |
-| `commerce-inventory` | 재고 점유·확정·입고·저재고 알림 | [README](commerce-inventory/README.md) · [architecture](commerce-inventory/architecture.md) |
+| `commerce-user` | 회원 가입·인증·프로필 | [README](commerce-user/README.md) |
+| `commerce-catalog` | 브랜드·상품·좋아요 | [README](commerce-catalog/README.md) · [architecture](commerce-catalog/architecture.md) |
+| `commerce-order` | 주문·결제·쿠폰 | [README](commerce-order/README.md) · [architecture](commerce-order/architecture.md) |
+| `commerce-queue` | 선착순 대기열 | [README](commerce-queue/README.md) · [architecture](commerce-queue/architecture.md) |
+| `commerce-ranking` | 랭킹·메트릭 | [README](commerce-ranking/README.md) · [architecture](commerce-ranking/architecture.md) |
 
-## 공통
+## 공통 문서
 
 - [공통 용어 사전](glossary.md)
 - [온톨로지 설계 배경](ontology-design.md)
+
+## 탐색 원칙
+
+도메인 관련 정보를 찾을 때는 **ontology → wiki → 코드** 순서로 탐색합니다.
+
+1. `ontology/index.yaml`에서 도메인 맵을 파악합니다.
+2. 관련 A-Box 파일에서 entity/relation을 확인합니다.
+3. entity의 `wiki_doc` 필드를 따라 이 wiki로 진입합니다.
+4. 코드 위치는 entity의 `repo` + `package` 필드를 참조합니다.

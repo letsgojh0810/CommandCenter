@@ -1,63 +1,54 @@
-# Glossary — 주문/결제
+# Glossary — 주문/결제/쿠폰
 
-> 이 도메인에서 자주 쓰이는 용어 정리.
+> 작성일: 2026-05-14 | 수정일: 2026-05-14 | 유형: 정책 | 관련 레포: letsgojh0810/commerce-backend
 
-## 데이터/엔티티
+## 패턴
 
-**주문 (order)**
-구매자가 한 번에 결제하기로 한 상품 묶음과 그 결제 상태를 표현하는 데이터. 라인 아이템(상품 ID, 수량, 가격), 적용 쿠폰, 최종 결제 금액, 상태를 가집니다.
+**Transactional Outbox**
+트랜잭션 BEFORE_COMMIT 시점에 outbox_events 테이블에 이벤트를 저장합니다. 별도 Scheduler가 1초 주기로 outbox_events를 읽어 Kafka로 발행합니다. 주문 생성과 이벤트 발행의 원자성을 보장하여 정확히 한 번 전달을 실현합니다.
 
-**결제 (payment)**
-주문에 연결된 결제 레코드. PG 거래 ID, 결제 수단, 금액, 상태를 가집니다. 한 주문에 여러 결제가 가능합니다(분할 결제, 부분 환불).
-
-**쿠폰 (coupon)**
-할인을 적용하는 정책 객체. 할인율 또는 금액, 사용 조건(최소 금액, 카테고리), 유효 기간, 발급 수량 한도를 가집니다. 사용자별 보유 이력은 별도 테이블에 있습니다.
-
-**주문 이벤트 (order-event)**
-주문 라이프사이클의 상태 변경 시점에 발행되는 이벤트(`order.created`, `order.paid`, `order.cancelled`, `order.refunded`). Kafka에 적재됩니다.
-
-## 프로세스
-
-**주문 생성 (order-placement)**
-장바구니 데이터를 주문으로 확정하는 과정. 가격 재검증·쿠폰 적용·재고 점유까지 한 트랜잭션 단위로 처리합니다.
-
-**결제 처리 (payment-processing)**
-PG에 결제를 시도하고 결과에 따라 결제 상태를 갱신하는 프로세스. 비동기 콜백도 처리합니다(은행 이체 등 시간 지연 결제).
-
-**환불 (refund-pipeline)**
-주문의 일부 또는 전체에 대해 결제를 되돌리는 과정. 결제 수단별로 PG의 환불 API가 달라 별도 분기가 필요합니다.
-
-## 결제 상태
-
-| 상태 | 의미 |
-|------|------|
-| `pending` | 결제 시도 중 (PG 응답 대기) |
-| `captured` | 결제 성공, 금액 청구 완료 |
-| `failed` | 결제 실패 (잔액 부족, 한도 초과 등) |
-| `refunded` | 전체 환불 완료 |
-| `partial_refunded` | 일부 환불 완료, 잔여 결제 유지 |
+**CircuitBreaker (pgCircuitBreaker)**
+OpenFeign PG 클라이언트에 적용된 Resilience4j CircuitBreaker입니다. PG 장애가 누적되면 Open 상태로 전환되어 PG 호출을 차단하고 빠른 실패를 반환합니다. Payment 상태는 PENDING으로 유지되며 PaymentScheduler가 복구를 담당합니다.
 
 ## 주문 상태
 
 | 상태 | 의미 |
 |------|------|
-| `pending` | 주문 생성됨, 결제 대기 |
-| `paid` | 결제 완료 |
-| `payment_failed` | 결제 시도 실패, 재고 점유 해제됨 |
-| `cancelled` | 구매자/CS가 주문 취소 |
-| `refunded` | 전체 환불 완료 |
-| `partial_refunded` | 일부 라인만 환불 완료 |
+| `PENDING_PAYMENT` | 주문 생성 완료, 결제 대기 중 |
+| `PAID` | 결제 완료 |
+| `CANCELLED` | 주문 취소 (재고·쿠폰 복구 완료) |
 
-## 외부 시스템
+## 결제 상태
 
-**PG 게이트웨이 (pg-gateway)**
-실제 결제를 처리하는 외부 시스템. 결제 수단(카드, 계좌이체, 간편결제)별로 다른 PG에 연결됩니다. 결제 API와 환불 API를 제공합니다.
+| 상태 | 의미 |
+|------|------|
+| `PENDING` | 결제 요청 중 또는 PG 장애로 대기 |
+| `SUCCESS` | 결제 성공 |
+| `FAILED` | 결제 실패 |
 
-## 자주 혼동되는 개념
+## 쿠폰 타입
 
-| 비슷해 보이지만 다른 것 | 차이 |
-|-------------------------|------|
-| 주문 상태 vs 결제 상태 | 주문은 사용자 관점의 상태, 결제는 PG 거래의 상태. 한 주문에 여러 결제가 있을 수 있음 |
-| 주문 취소 vs 환불 | 결제 전 취소는 `cancelled`(PG 호출 불필요), 결제 후는 `refunded`(PG 환불 필요) |
-| 쿠폰 정책 vs 쿠폰 사용 이력 | `coupon`(이 도메인) = 정책 자체, 사용 이력은 별도 테이블 |
-| 분할 결제 vs 분할 환불 | 분할 결제는 한 주문에 여러 payment 생성, 분할 환불은 그중 일부만 환불 |
+| 타입 | 의미 |
+|------|------|
+| `FIXED` | 고정 할인액 (예: 5,000원 할인) |
+| `RATE` | 비율 할인 (예: 10% 할인) |
+
+**쿠폰 정책 필드**: `minOrderAmount`(최소 주문 금액), `validDays`(유효 기간 일수), `totalLimit`(전체 발급 한도)
+
+## UserCoupon 상태
+
+| 상태 | 의미 |
+|------|------|
+| `AVAILABLE` | 사용 가능 |
+| `USED` | 사용 완료 |
+| `EXPIRED` | 만료 |
+
+## CardType
+
+PG 결제 시 카드 타입: `SAMSUNG`, `KB`, `HYUNDAI`, `KAKAO`, `TOSS`, `NAVER`
+
+## 기타
+
+**OrderItem 스냅샷**: 주문 시점의 `productId`, `brandName`, `productName`, `price`, `quantity`를 order_items 테이블에 저장합니다. 이후 상품 정보가 변경되어도 주문 기록은 원본 값을 유지합니다.
+
+**payment_cancel_requests**: 주문 취소 요청 추적 테이블. `orderId`, `pgTransactionId`, `status`, `reason` 필드를 포함합니다.

@@ -1,0 +1,61 @@
+# ontology/abox/commerce-queue.yaml
+# Redis ZSet 기반 선착순 입장 대기열 도메인.
+
+domain:
+  id: commerce-queue
+  name: 대기열
+  summary: |
+    Redis ZSet(queue:waiting)으로 선착순 입장 순위를 관리한다.
+    QueueScheduler가 100ms마다 batchSize만큼 사용자를 팝하여 입장 토큰을 발급.
+    주문 생성 시 X-Entry-Token 헤더로 입장 토큰을 검증한다.
+    Hard TTL + Soft TTL 이중 구조로 토큰 자동 무효화.
+  wiki_root: wiki/commerce-queue/
+
+entities:
+  - id: queue-entry
+    name: 대기열 입장
+    type: process
+    summary: |
+      POST /api/v1/queue/enter: Redis ZSet에 userId 추가 (score = 현재 timestamp).
+      GET /api/v1/queue/position: 내 대기 순위 조회.
+      입장 후 QueueScheduler가 순차적으로 입장 토큰 발급.
+    repo: letsgojh0810/commerce-backend
+    package: apps/commerce-api/src/main/java/com/loopers/interfaces/api/queue
+    wiki_doc: wiki/commerce-queue/대기열-흐름/README.md
+
+  - id: queue-scheduler
+    name: 대기열 스케줄러
+    type: process
+    summary: |
+      100ms마다 실행. queue:waiting ZSet에서 batchSize만큼 팝.
+      팝된 사용자에게 입장 토큰(Soft TTL + Hard TTL) 발급.
+      queue:enabled 플래그로 대기열 on/off 제어.
+    repo: letsgojh0810/commerce-backend
+    package: apps/commerce-api/src/main/java/com/loopers/domain/queue
+    wiki_doc: wiki/commerce-queue/대기열-흐름/README.md
+
+  - id: entry-token
+    name: 입장 토큰
+    type: data
+    summary: |
+      Redis 키: queue:token:{userId}(Soft), queue:token:hard:{userId}(Hard).
+      Hard TTL 만료 시 자동 무효화. 주문 생성 시 QueueService.validateToken()으로 검증.
+      주문 완료 후 토큰 삭제(OrderFacade에서 호출).
+    repo: letsgojh0810/commerce-backend
+    package: apps/commerce-api/src/main/java/com/loopers/domain/queue
+    wiki_doc: wiki/commerce-queue/대기열-흐름/README.md
+
+relations:
+  - from: queue-entry
+    to: entry-token
+    type: produces
+    note: QueueScheduler가 팝 후 토큰 발급
+
+  - from: queue-scheduler
+    to: entry-token
+    type: produces
+
+  - from: entry-token
+    to: redis
+    type: deployed_in
+    note: ZSet(queue:waiting), token(queue:token:*) 모두 Redis
