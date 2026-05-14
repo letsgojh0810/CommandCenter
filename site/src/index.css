@@ -1,21 +1,24 @@
 @import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 html, body {
   overscroll-behavior: none;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 15px;
 }
 
 :root,
 :root[data-theme='dark'] {
   color-scheme: dark;
-  --bg: #0a0a0b;
-  --bg-card: #141416;
-  --bg-hover: #1a1a1e;
-  --bg-sidebar: #111113;
-  --bg-code: #18181b;
-  --bg-dot-grid: #1a1a1e;
-  --bg-tag: rgba(255, 255, 255, 0.06);
-  --border: #232328;
-  --border-hover: #3a3a42;
+  --bg: #111118;
+  --bg-card: #17171f;
+  --bg-hover: #1d1d28;
+  --bg-sidebar: #141420;
+  --bg-code: #1b1b25;
+  --bg-dot-grid: #1d1d28;
+  --bg-tag: rgba(255, 255, 255, 0.07);
+  --border: #26262f;
+  --border-hover: #3a3a48;
   --text-primary: #e4e4e7;
   --text-muted: #71717a;
   --text-dim: #52525b;
@@ -87,7 +90,7 @@ html, body {
 
 /* Wiki markdown styles */
 .wiki-content h1 {
-  font-size: 24px;
+  font-size: 26px;
   font-weight: 700;
   letter-spacing: -0.5px;
   margin-bottom: 8px;
@@ -96,19 +99,19 @@ html, body {
 }
 
 .wiki-content h2 {
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 700;
   margin: 32px 0 12px;
 }
 
 .wiki-content h3 {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
   margin: 24px 0 8px;
 }
 
 .wiki-content p {
-  font-size: 14px;
+  font-size: 15px;
   color: var(--text-muted);
   line-height: 1.8;
   margin-bottom: 16px;
@@ -116,7 +119,7 @@ html, body {
 
 .wiki-content ul,
 .wiki-content ol {
-  font-size: 14px;
+  font-size: 15px;
   color: var(--text-muted);
   line-height: 1.8;
   margin-bottom: 16px;
