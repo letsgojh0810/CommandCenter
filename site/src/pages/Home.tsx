@@ -17,7 +17,7 @@ export function Home() {
   return (
     <div>
       <h1 className="text-xl font-bold tracking-tight mb-1">Overview</h1>
-      <p className="text-[13px] text-text-muted mb-6">
+      <p className="text-[14px] text-text-muted mb-6">
         {ontology.domains.length} domains &middot; {totalEntities} entities &middot; {totalRelations} relations &middot; {wikiDocCount} wiki docs
       </p>
 
@@ -26,10 +26,10 @@ export function Home() {
         <StatCard label="Domains" value={ontology.domains.length} />
         <StatCard label="Entities" value={totalEntities}>
           <div className="flex gap-1 mt-0.5">
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-[rgba(96,165,250,0.12)] text-node-process">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[12px] font-medium bg-[rgba(96,165,250,0.12)] text-node-process">
               process {ontology.domains.reduce((s, d) => s + d.entities.filter((e) => e.type === 'process').length, 0)}
             </span>
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-[rgba(52,211,153,0.12)] text-node-data">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[12px] font-medium bg-[rgba(52,211,153,0.12)] text-node-data">
               data {ontology.domains.reduce((s, d) => s + d.entities.filter((e) => e.type === 'data').length, 0)}
             </span>
           </div>
@@ -66,20 +66,20 @@ export function Home() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <h3 className="text-[15px] font-semibold tracking-tight">{domain.name}</h3>
-                  <div className="text-[11px] text-text-dim mt-px">{domain.path}</div>
+                  <div className="text-[12px] text-text-dim mt-px">{domain.path}</div>
                 </div>
                 <div className="flex gap-1.5 shrink-0">
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-[rgba(96,165,250,0.12)] text-node-process">
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[12px] font-medium bg-[rgba(96,165,250,0.12)] text-node-process">
                     entities {domain.entities.length}
                   </span>
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-[rgba(52,211,153,0.12)] text-node-data">
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[12px] font-medium bg-[rgba(52,211,153,0.12)] text-node-data">
                     relations {domain.relations.length}
                   </span>
                 </div>
               </div>
 
               {/* Summary */}
-              <p className="text-[13px] text-text-muted leading-relaxed mb-3.5 flex-1">{domain.summary}</p>
+              <p className="text-[14px] text-text-muted leading-relaxed mb-3.5 flex-1">{domain.summary}</p>
 
               {/* Repos */}
               <div className="flex flex-wrap gap-1.5">
@@ -90,7 +90,7 @@ export function Home() {
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={(e) => e.stopPropagation()}
-                    className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-mono bg-bg-tag text-text-muted hover:text-accent hover:bg-accent-dim transition-colors"
+                    className="inline-flex items-center gap-1 px-2 py-1 rounded text-[12px] font-mono bg-bg-tag text-text-muted hover:text-accent hover:bg-accent-dim transition-colors"
                   >
                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 00-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0020 4.77 5.07 5.07 0 0019.91 1S18.73.65 16 2.48a13.38 13.38 0 00-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 005 4.77a5.44 5.44 0 00-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 009 18.13V22"/></svg>
                     {repo}
@@ -110,7 +110,7 @@ function EmptyDomainState() {
   return (
     <div className="bg-bg-card border border-dashed border-border rounded-[10px] p-10 text-center">
       <div className="text-[15px] font-semibold mb-2">아직 도메인이 없습니다</div>
-      <p className="text-[13px] text-text-muted leading-relaxed max-w-md mx-auto">
+      <p className="text-[14px] text-text-muted leading-relaxed max-w-md mx-auto">
         <code className="text-accent">ontology/index.yaml</code>에 도메인을 추가하거나,
         Claude Code에서 <code className="text-accent">/new-domain</code> 스킬로 첫 도메인을 만들어보세요.
       </p>
@@ -138,9 +138,9 @@ function StatCard({
         onClick ? 'cursor-pointer hover:bg-bg-hover hover:border-border-hover transition-colors' : ''
       }`}
     >
-      <div className="text-[11px] text-text-dim uppercase tracking-wide">{label}</div>
+      <div className="text-[12px] text-text-dim uppercase tracking-wide">{label}</div>
       <div className="text-[28px] font-bold tracking-tighter mt-1">{value}</div>
-      {sub && <div className="text-xs text-text-muted mt-0.5">{sub}</div>}
+      {sub && <div className="text-[13px] text-text-muted mt-0.5">{sub}</div>}
       {children}
     </div>
   );
