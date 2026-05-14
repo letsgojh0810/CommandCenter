@@ -18,7 +18,7 @@ function Breadcrumb() {
   }
 
   return (
-    <div className="text-[13px] text-text-muted">
+    <div className="text-[14px] text-text-muted">
       Command Center
       <span className="text-text-dim mx-1.5">/</span>
       <span className="text-text-primary font-medium">{label}</span>

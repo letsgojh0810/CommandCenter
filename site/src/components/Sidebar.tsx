@@ -32,8 +32,8 @@ export function Sidebar() {
     <aside className="w-[260px] shrink-0 border-r border-border bg-bg-sidebar flex flex-col">
       {/* Header */}
       <div className="px-5 pt-5 pb-4 border-b border-border">
-        <h1 className="text-[15px] font-bold tracking-tight">Command Center</h1>
-        <p className="text-xs text-text-muted mt-0.5">
+        <h1 className="text-[16px] font-bold tracking-tight">Command Center</h1>
+        <p className="text-[13px] text-text-muted mt-0.5">
           {ontology ? `${ontology.domains.length} domains` : '...'} &middot; {totalEntities} entities
         </p>
       </div>
@@ -46,7 +46,7 @@ export function Sidebar() {
             to="/"
             end
             className={({ isActive }) =>
-              `flex items-center gap-2 px-3 py-[7px] rounded-md text-[13px] transition-colors ${
+              `flex items-center gap-2 px-3 py-[7px] rounded-md text-[14px] transition-colors ${
                 isActive
                   ? 'bg-accent-dim text-accent'
                   : 'text-text-muted hover:bg-bg-hover hover:text-text-primary'
@@ -64,7 +64,7 @@ export function Sidebar() {
           <NavLink
             to="/overview"
             className={({ isActive }) =>
-              `flex items-center gap-2 px-3 py-[7px] rounded-md text-[13px] transition-colors ${
+              `flex items-center gap-2 px-3 py-[7px] rounded-md text-[14px] transition-colors ${
                 isActive
                   ? 'bg-accent-dim text-accent'
                   : 'text-text-muted hover:bg-bg-hover hover:text-text-primary'
@@ -86,7 +86,7 @@ export function Sidebar() {
         <div className="mb-2">
           <button
             onClick={() => setDomainsOpen(!domainsOpen)}
-            className="w-full text-left text-[11px] font-semibold text-text-dim uppercase tracking-wider px-3 pt-2 pb-1 hover:text-text-muted transition-colors"
+            className="w-full text-left text-[12px] font-semibold text-text-dim uppercase tracking-wider px-3 pt-2 pb-1 hover:text-text-muted transition-colors"
           >
             Domains {domainsOpen ? '−' : '+'}
           </button>
@@ -96,7 +96,7 @@ export function Sidebar() {
                 key={domain.id}
                 to={`/domain/${domain.id}`}
                 className={({ isActive }) =>
-                  `flex items-center gap-2 pl-5 pr-3 py-[7px] rounded-md text-[13px] transition-colors ${
+                  `flex items-center gap-2 pl-5 pr-3 py-[7px] rounded-md text-[14px] transition-colors ${
                     isActive
                       ? 'bg-accent-dim text-accent'
                       : 'text-text-muted hover:bg-bg-hover hover:text-text-primary'
@@ -108,7 +108,7 @@ export function Sidebar() {
                   style={{ background: DOMAIN_COLORS[domain.id] ?? '#71717a' }}
                 />
                 {domain.name}
-                <span className="ml-auto text-[11px] text-text-dim">{domain.entities.length}</span>
+                <span className="ml-auto text-[12px] text-text-dim">{domain.entities.length}</span>
               </NavLink>
             ))}
         </div>
@@ -117,7 +117,7 @@ export function Sidebar() {
         <div className="mb-2">
           <button
             onClick={() => setWikiOpen(!wikiOpen)}
-            className="w-full text-left text-[11px] font-semibold text-text-dim uppercase tracking-wider px-3 pt-2 pb-1 hover:text-text-muted transition-colors"
+            className="w-full text-left text-[12px] font-semibold text-text-dim uppercase tracking-wider px-3 pt-2 pb-1 hover:text-text-muted transition-colors"
           >
             Wiki {wikiOpen ? '−' : '+'}
           </button>
@@ -125,7 +125,7 @@ export function Sidebar() {
             <div>
               <button
                 onClick={() => setWikiRootOpen(!wikiRootOpen)}
-                className="w-full flex items-center gap-2 pl-5 pr-3 py-[6px] rounded-md text-[12px] text-text-muted hover:bg-bg-hover hover:text-text-primary transition-colors"
+                className="w-full flex items-center gap-2 pl-5 pr-3 py-[6px] rounded-md text-[13px] text-text-muted hover:bg-bg-hover hover:text-text-primary transition-colors"
               >
                 <svg
                   width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
@@ -134,14 +134,14 @@ export function Sidebar() {
                   <path d="M9 18l6-6-6-6" />
                 </svg>
                 <span className="font-medium">공통 문서</span>
-                <span className="ml-auto text-[11px] text-text-dim">{wikiRootDocs.length}</span>
+                <span className="ml-auto text-[12px] text-text-dim">{wikiRootDocs.length}</span>
               </button>
               {wikiRootOpen && wikiRootDocs.map((doc) => (
                 <NavLink
                   key={doc.path}
                   to={`/wiki/${doc.path}`}
                   className={({ isActive }) =>
-                    `flex items-center gap-2 pl-9 pr-3 py-[5px] rounded-md text-[12px] transition-colors ${
+                    `flex items-center gap-2 pl-9 pr-3 py-[5px] rounded-md text-[13px] transition-colors ${
                       isActive
                         ? 'bg-accent-dim text-accent'
                         : 'text-text-muted hover:bg-bg-hover hover:text-text-primary'
@@ -164,7 +164,7 @@ export function Sidebar() {
                 <div key={domain}>
                   <button
                     onClick={() => setWikiDomainOpen((prev) => ({ ...prev, [domain]: !isOpen }))}
-                    className="w-full flex items-center gap-2 pl-5 pr-3 py-[6px] rounded-md text-[12px] text-text-muted hover:bg-bg-hover hover:text-text-primary transition-colors"
+                    className="w-full flex items-center gap-2 pl-5 pr-3 py-[6px] rounded-md text-[13px] text-text-muted hover:bg-bg-hover hover:text-text-primary transition-colors"
                   >
                     <svg
                       width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
@@ -173,14 +173,14 @@ export function Sidebar() {
                       <path d="M9 18l6-6-6-6" />
                     </svg>
                     <span className="font-medium">{domain}</span>
-                    <span className="ml-auto text-[11px] text-text-dim">{docs.length}</span>
+                    <span className="ml-auto text-[12px] text-text-dim">{docs.length}</span>
                   </button>
                   {isOpen && docs.map((doc) => (
                     <NavLink
                       key={doc.path}
                       to={`/wiki/${doc.path}`}
                       className={({ isActive }) =>
-                        `flex items-center gap-2 pl-9 pr-3 py-[5px] rounded-md text-[12px] transition-colors ${
+                        `flex items-center gap-2 pl-9 pr-3 py-[5px] rounded-md text-[13px] transition-colors ${
                           isActive
                             ? 'bg-accent-dim text-accent'
                             : 'text-text-muted hover:bg-bg-hover hover:text-text-primary'
