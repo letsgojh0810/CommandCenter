@@ -1,96 +1,142 @@
-# commerce-order 도메인
-# 주문 생성·결제·환불·쿠폰 적용을 다루는 도메인.
+# ontology/abox/commerce-order.yaml
+# 주문 생성·취소, PG 결제, 쿠폰 발급·사용 도메인.
 
 domain:
   id: commerce-order
-  name: 주문/결제
+  name: 주문·결제·쿠폰
   summary: |
-    장바구니에서 시작한 주문을 검증·생성하고, PG를 통해 결제 처리하고,
-    환불 시나리오를 관리한다. 쿠폰은 주문 단계에서 검증·적용된다.
-    상품 정보·재고 점유는 다른 도메인(catalog, inventory)에 위임한다.
+    주문 생성 시 재고 차감 → 쿠폰 사용 → 주문 생성 → 이벤트 발행 순으로 처리.
+    PG 결제는 OpenFeign + Resilience4j(CircuitBreaker+Retry)로 연동하며,
+    Transactional Outbox로 order-events 토픽에 정확히 한 번 발행을 보장한다.
+    쿠폰은 동기 발급(즉시 DB 저장)과 비동기 발급(Kafka 큐잉) 두 가지를 지원한다.
   wiki_root: wiki/commerce-order/
 
 entities:
-  # ── processes ────────────────────────────────────────────────
-  - id: order-placement
-    name: 주문 생성 파이프라인
-    type: process
-    summary: |
-      장바구니 데이터를 받아 주문을 생성한다. 가격 재검증, 쿠폰 적용,
-      재고 점유 요청(다른 도메인)을 거쳐 order 레코드를 작성하고
-      결제 처리로 인계한다.
-    repo: example-order-api
-    package: src/placement
-    wiki_doc: wiki/commerce-order/주문-생성/README.md
-
-  - id: payment-processing
-    name: 결제 처리
-    type: process
-    summary: |
-      PG 게이트웨이를 호출하여 결제를 시도하고, 결과에 따라 payment
-      상태를 갱신한다. 결제 성공·실패·취소 시 order-event를 발행한다.
-    repo: example-order-api
-    package: src/payment
-    wiki_doc: wiki/commerce-order/결제-흐름/README.md
-
-  - id: refund-pipeline
-    name: 환불 파이프라인
-    type: process
-    summary: |
-      환불 요청을 검토·승인하고, PG를 통해 결제 수단별로 환불을 진행한다.
-      전체/부분 환불 모두 지원한다.
-    repo: example-order-api
-    package: src/refund
-    wiki_doc: wiki/commerce-order/환불-정책/README.md
-
   # ── data ─────────────────────────────────────────────────────
   - id: order
     name: 주문
     type: data
     summary: |
-      주문 본체. 주문자, 상품 라인, 결제 금액, 상태(pending/paid/refunded/cancelled),
-      적용된 쿠폰 ID, 생성 시각을 가진다. 결제 레코드를 owns 관계로 보유한다.
-    repo: example-order-api
-    package: src/domain/order
+      테이블 orders. userId, originalAmount, discountAmount, totalAmount,
+      userCouponId, deliveryAddress, status(PENDING_PAYMENT→PAID/CANCELLED).
+      OrderItem과 @OneToMany(CascadeType.ALL).
+    repo: letsgojh0810/commerce-backend
+    package: apps/commerce-api/src/main/java/com/loopers/domain/order
+    wiki_doc: wiki/commerce-order/주문-생성/README.md
+
+  - id: order-item
+    name: 주문 상품
+    type: data
+    summary: |
+      테이블 order_items. 주문 시점 스냅샷: productId, brandName, productName, price, quantity.
+      상품 정보가 이후 변경되어도 주문 당시 내역 보존.
+    repo: letsgojh0810/commerce-backend
+    package: apps/commerce-api/src/main/java/com/loopers/domain/order
     wiki_doc: wiki/commerce-order/주문-생성/README.md
 
   - id: payment
     name: 결제
     type: data
     summary: |
-      결제 레코드. PG 거래 ID, 결제 수단(카드/계좌/포인트), 결제 금액,
-      상태(pending/captured/failed/refunded)를 가진다. 한 주문에 여러 결제가
-      가능(분할 결제, 부분 환불 시 잔여 결제).
-    repo: example-order-api
-    package: src/domain/payment
+      테이블 payments. orderId, userId, cardType, cardNo, amount,
+      status(PENDING→SUCCESS/FAILED), pgTransactionId, failureReason.
+      CardType: SAMSUNG, KB, HYUNDAI, KAKAO, TOSS, NAVER.
+    repo: letsgojh0810/commerce-backend
+    package: apps/commerce-api/src/main/java/com/loopers/domain/payment
     wiki_doc: wiki/commerce-order/결제-흐름/README.md
 
-  - id: coupon
-    name: 쿠폰
+  - id: payment-cancel-request
+    name: 결제 취소 요청
     type: data
     summary: |
-      쿠폰 정책 정의(할인율/금액, 사용 조건, 유효 기간, 발급 수량 제한).
-      개별 사용자의 보유·사용 이력은 별도 테이블에서 관리한다.
-    repo: example-order-api
-    package: src/domain/coupon
+      테이블 payment_cancel_requests. 결제 취소/환불 요청 이력. orderId, pgTransactionId, status, reason.
+    repo: letsgojh0810/commerce-backend
+    package: apps/commerce-api/src/main/java/com/loopers/domain/payment
+
+  - id: coupon
+    name: 쿠폰 정책
+    type: data
+    summary: |
+      테이블 coupons. name, type(FIXED/RATE), value, minOrderAmount, validDays, totalLimit.
+      FIXED: 고정 할인액, RATE: 비율(%) 할인.
+    repo: letsgojh0810/commerce-backend
+    package: apps/commerce-api/src/main/java/com/loopers/domain/coupon
     wiki_doc: wiki/commerce-order/쿠폰-규칙/README.md
 
-  - id: order-event
-    name: 주문 이벤트
+  - id: user-coupon
+    name: 사용자 쿠폰
     type: data
     summary: |
-      주문 라이프사이클 이벤트(order_created, paid, cancelled, refunded). Kafka
-      토픽에 적재되어 다른 도메인(재고, 정산, CRM)이 구독한다.
-    repo: example-order-api
-    package: src/domain/event
+      테이블 user_coupons. couponId, userId, status(AVAILABLE→USED/EXPIRED), issuedAt, expiredAt.
+    repo: letsgojh0810/commerce-backend
+    package: apps/commerce-api/src/main/java/com/loopers/domain/coupon
+    wiki_doc: wiki/commerce-order/쿠폰-규칙/README.md
 
-  # ── external ─────────────────────────────────────────────────
-  - id: pg-gateway
-    name: PG 게이트웨이
-    type: external
+  - id: coupon-issue-request
+    name: 쿠폰 발급 요청
+    type: data
     summary: |
-      외부 결제 대행사(PG). 카드/계좌/간편결제 등 결제 수단별로 다른 PG에
-      연결된다. 결제·환불·취소 API를 제공한다.
+      테이블 coupon_issue_requests. 비동기 발급 추적. requestId, couponId, userId,
+      status(PENDING→SUCCESS/FAILED), failReason.
+    repo: letsgojh0810/commerce-backend
+    package: apps/commerce-api/src/main/java/com/loopers/domain/coupon
+    wiki_doc: wiki/commerce-order/쿠폰-규칙/README.md
+
+  - id: outbox-event
+    name: 아웃박스 이벤트
+    type: data
+    summary: |
+      테이블 outbox_events. eventId, topic, partitionKey, payload, status(PENDING→PUBLISHED/FAILED),
+      retryCount(max=3), createdAt, publishedAt.
+      도메인 이벤트 발생 시 BEFORE_COMMIT에 저장, OutboxScheduler가 1초마다 Kafka로 발행.
+      실패 3회 초과 시 DLQ({topic}-dlq)로 전송.
+    repo: letsgojh0810/commerce-backend
+    package: apps/commerce-api/src/main/java/com/loopers/domain/outbox
+
+  # ── processes ─────────────────────────────────────────────────
+  - id: order-placement
+    name: 주문 생성
+    type: process
+    summary: |
+      POST /api/v1/orders (X-Entry-Token 헤더 optional).
+      흐름: 대기열 토큰 검증 → 재고 차감(product.decreaseStock) → 쿠폰 검증·사용
+      → order/order-item 생성 → OrderCreatedEvent(outbox 저장) → 대기열 토큰 삭제.
+      GET /api/v1/orders (목록), GET /api/v1/orders/{orderId} (상세).
+    repo: letsgojh0810/commerce-backend
+    package: apps/commerce-api/src/main/java/com/loopers/application/order
+    wiki_doc: wiki/commerce-order/주문-생성/README.md
+
+  - id: order-cancellation
+    name: 주문 취소
+    type: process
+    summary: |
+      POST /api/v1/orders/{orderId}/cancel.
+      흐름: 재고 복구(product.increaseStock) → 쿠폰 복구 → OrderCancelledEvent(outbox 저장).
+    repo: letsgojh0810/commerce-backend
+    package: apps/commerce-api/src/main/java/com/loopers/application/order
+    wiki_doc: wiki/commerce-order/주문-생성/README.md
+
+  - id: payment-processing
+    name: 결제 처리
+    type: process
+    summary: |
+      POST /api/v1/payments (결제 요청), POST /api/v1/payments/callback (PG 콜백 수신).
+      PG 장애 시 CircuitBreaker 오픈 → Payment PENDING 유지 → PaymentScheduler(30초)가 재조회.
+    repo: letsgojh0810/commerce-backend
+    package: apps/commerce-api/src/main/java/com/loopers/interfaces/api/payment
+    wiki_doc: wiki/commerce-order/결제-흐름/README.md
+
+  - id: coupon-issuance
+    name: 쿠폰 발급
+    type: process
+    summary: |
+      POST /api/v1/coupons/{couponId}/issue (동기: 즉시 DB 저장),
+      POST /api/v1/coupons/{couponId}/issue-async (비동기: Kafka coupon-issue-requests 발행),
+      GET /api/v1/coupons/issue-requests/{requestId} (발급 요청 상태 조회),
+      GET /api/v1/coupons/users/me/coupons (내 쿠폰 목록).
+    repo: letsgojh0810/commerce-backend
+    package: apps/commerce-api/src/main/java/com/loopers/interfaces/api/coupon
+    wiki_doc: wiki/commerce-order/쿠폰-규칙/README.md
 
 relations:
   # 주문 생성 흐름
@@ -98,20 +144,20 @@ relations:
     to: order
     type: produces
   - from: order-placement
-    to: coupon
-    type: consumes
-    note: 쿠폰 코드 검증 및 할인 금액 계산
-  - from: order-placement
-    to: order-event
+    to: order-item
     type: produces
-    note: order_created 이벤트 발행
   - from: order-placement
-    to: payment-processing
-    type: triggers
+    to: user-coupon
+    type: consumes
+    note: 쿠폰 검증 및 USED 상태로 전환
   - from: order-placement
-    to: redis
-    type: depends_on
-    note: 쿠폰 사용량 카운터 (동시 사용 제어)
+    to: outbox-event
+    type: produces
+    note: OrderCreatedEvent → order-events 토픽
+  - from: order-cancellation
+    to: outbox-event
+    type: produces
+    note: OrderCancelledEvent → order-events 토픽
 
   # 결제 흐름
   - from: payment-processing
@@ -119,34 +165,35 @@ relations:
     type: produces
   - from: payment-processing
     to: pg-gateway
-    type: references
-    note: 결제 수단별 PG API 호출
-  - from: payment-processing
-    to: order-event
-    type: produces
-    note: paid 또는 payment_failed 이벤트
+    type: depends_on
+    note: OpenFeign + CircuitBreaker + Retry
 
-  # 환불 흐름
-  - from: refund-pipeline
-    to: payment
-    type: consumes
-    note: 기존 결제 레코드를 기반으로 환불 처리
-  - from: refund-pipeline
-    to: pg-gateway
-    type: references
-    note: PG 환불 API 호출
-  - from: refund-pipeline
-    to: order-event
+  # 쿠폰 발급
+  - from: coupon-issuance
+    to: user-coupon
     type: produces
-    note: refunded 이벤트 발행
+    note: 동기 발급 시 즉시 생성
+  - from: coupon-issuance
+    to: kafka
+    type: produces
+    note: 비동기 발급 시 coupon-issue-requests 토픽 발행
+
+  # 아웃박스
+  - from: outbox-event
+    to: kafka
+    type: produces
+    note: OutboxScheduler가 1초마다 PENDING 레코드 → Kafka 발행
 
   # 데이터 구조
   - from: order
-    to: payment
+    to: order-item
     type: owns
 
   # 인프라 배포
   - from: order
+    to: mysql
+    type: deployed_in
+  - from: order-item
     to: mysql
     type: deployed_in
   - from: payment
@@ -155,7 +202,12 @@ relations:
   - from: coupon
     to: mysql
     type: deployed_in
-  - from: order-event
-    to: kafka
+  - from: user-coupon
+    to: mysql
     type: deployed_in
-    note: commerce.order.* 토픽 그룹
+  - from: coupon-issue-request
+    to: mysql
+    type: deployed_in
+  - from: outbox-event
+    to: mysql
+    type: deployed_in

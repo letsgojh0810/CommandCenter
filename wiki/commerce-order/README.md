@@ -1,46 +1,50 @@
-# 주문/결제 (commerce-order)
+# 주문/결제/쿠폰 (commerce-order)
 
-> 유형: 정책 | 관련 레포: example-order-api
+> 작성일: 2026-05-14 | 수정일: 2026-05-14 | 유형: 정책 | 관련 레포: letsgojh0810/commerce-backend
 
-## 배경
+## 개요
 
-구매자가 장바구니에서 시작한 주문을 검증·확정하고, PG를 통해 결제를 처리하며, 환불 시나리오까지 책임지는 도메인입니다. 주문은 사용자의 의사 결정이 코드화되는 지점이라 가격·재고·쿠폰을 동시에 다루며, 정확성과 정합성이 요구됩니다.
+구매자의 주문 생성부터 PG 결제, 쿠폰 적용, 취소까지 책임지는 도메인입니다. Transactional Outbox 패턴으로 Kafka 이벤트의 정확히 한 번 전달을 보장하고, OpenFeign + Resilience4j로 PG 장애에 대응합니다.
 
-## 풀려는 문제
+## 주문 생성 흐름
 
-- **가격 정합성**: 장바구니에서 본 가격과 결제 시점 가격이 다르면 안 됩니다. 주문 생성 시 가격 재검증이 필요합니다.
-- **재고 동시성**: 같은 상품을 여러 사용자가 동시에 구매하면 재고가 한도를 초과해 팔리는 일이 발생할 수 있습니다. 재고 도메인과 점유 협의가 필요합니다.
-- **결제 실패 처리**: PG 응답이 지연되거나 실패하면 주문 상태가 모호해집니다. 결제 상태 머신을 명확히 정의해야 합니다.
-- **부분 환불의 복잡성**: 카드+포인트 분할 결제 후 한 결제 수단만 환불하는 경우 등, 결제 수단별로 환불 절차가 다릅니다.
-- **쿠폰 중복 적용**: 사용자가 여러 쿠폰을 동시에 시도하면 중복 적용 방지, 사용량 한도 초과 방지가 필요합니다.
+```
+POST /api/v1/orders
+  → 대기열 토큰 검증 (optional, queue:token:{userId})
+  → product.decreaseStock() — 재고 차감
+  → 쿠폰 검증·사용 처리
+  → Order / OrderItem 생성 (PENDING_PAYMENT)
+  → OutboxEvent 저장 (BEFORE_COMMIT)
+  → 대기열 토큰 삭제
+  → Kafka 발행 (Scheduler, 1초 주기)
+```
 
-## 사용자
+## PG 결제 연동
 
-| 사용자 | 어떻게 사용하는가 |
-|--------|--------------------|
-| **구매자** | 장바구니 → 결제 페이지 → 주문 확정. 환불 요청. |
-| **CS 운영팀** | 환불 승인, 결제 오류 수동 보정, 주문 상태 점검 |
-| **타 도메인 (catalog, inventory)** | 주문 생성 시점에 상품 정보·재고 점유 인터페이스를 제공받음 |
-| **정산 시스템** | 결제 완료 이벤트(order.paid)를 구독하여 셀러 정산 |
+OpenFeign 클라이언트에 `@CircuitBreaker(name = "pgCircuitBreaker")` + `@Retry(name = "pgRetry")`를 적용합니다. PG 장애 시 CircuitBreaker가 Open 상태로 전환되어 빠른 실패를 반환하고, Payment 상태는 PENDING으로 유지됩니다. PaymentScheduler가 30초마다 PENDING 결제를 재조회하여 복구합니다.
 
-## 성공 기준
+## 쿠폰
 
-- 주문 생성 → 결제 완료 전체 흐름의 p95 응답 시간 **3초 이내**
-- 결제 성공률 (PG 호출 기준) **98% 이상**
-- 결제 완료 후 정합성 오류(이중 결제, 결제 후 재고 부족) **0건**
-- 환불 SLA: 카드 환불 평균 **3 영업일 이내**
+| 발급 방식 | 흐름 |
+|-----------|------|
+| 동기 발급 | POST /api/v1/coupons/{couponId}/issue → 즉시 user_coupons 저장 |
+| 비동기 발급 | POST /api/v1/coupons/{couponId}/issue-async → Kafka coupon-issue-requests 발행 → commerce-streamer 처리 |
 
-## 주요 정책
+쿠폰 타입: `FIXED`(고정 할인액) / `RATE`(비율 할인%).
 
-상세는 [architecture.md](architecture.md)의 정책 인덱스를 참조하세요.
+## Transactional Outbox 패턴
+
+트랜잭션 BEFORE_COMMIT 시점에 outbox_events 테이블에 이벤트를 저장합니다. 별도 Scheduler가 1초 주기로 outbox_events를 Kafka로 발행하여 정확히 한 번 전달을 보장합니다.
+
+## 주요 주제
 
 | 주제 | 위치 |
 |------|------|
-| 주문 생성·검증·재고 점유 | [주문-생성/](주문-생성/README.md) |
-| 결제 상태 머신·PG 연동 | [결제-흐름/](결제-흐름/README.md) |
-| 환불 사유·부분 환불 | [환불-정책/](환불-정책/README.md) |
-| 쿠폰 검증·중복 적용 규칙 | [쿠폰-규칙/](쿠폰-규칙/README.md) |
+| 주문 생성·취소·OrderItem 스냅샷 | [주문-생성/](주문-생성/README.md) |
+| PG 결제·CircuitBreaker·PaymentScheduler | [결제-흐름/](결제-흐름/README.md) |
+| 쿠폰 정책·동기/비동기 발급 | [쿠폰-규칙/](쿠폰-규칙/README.md) |
+| 주문 취소 기반 환불 흐름 | [환불-정책/](환불-정책/README.md) |
 
 ## 관련 ontology
 
-`ontology/abox/commerce-order.yaml` — 8 entities, 16 relations
+`ontology/abox/commerce-order.yaml`

@@ -1,45 +1,46 @@
-# Ontology Index
-# 도메인 목록과 비즈니스 위계. 이 파일이 탐색의 진입점.
-# Claude는 매 요청 시 이 파일을 먼저 읽고, 관련 도메인 파일로 이동한다.
+# ontology/index.yaml
+# 도메인 탐색 진입점. 매 도메인 관련 요청 시 이 파일을 먼저 읽는다.
 
 domains:
-  - id: commerce-catalog
-    path: 이커머스/상품-카탈로그
-    file: abox/commerce-catalog.yaml
-    summary: 상품 등록·분류·가격 관리·검색 노출을 다루는 카탈로그 도메인
+  - id: commerce-user
+    name: 사용자
+    summary: 회원 가입·인증·프로필 관리. 모든 보호 API의 인증 기반.
+    file: abox/commerce-user.yaml
     repos:
-      - example-catalog-api
-      - example-catalog-worker
-    infra:
-      - mysql
-      - redis
-      - kafka
-      - s3
-      - elasticsearch
-      - cloudfront
+      - letsgojh0810/commerce-backend
+    infra: [mysql]
+
+  - id: commerce-catalog
+    name: 상품 카탈로그
+    summary: 브랜드·상품 조회·좋아요. Redis 캐시로 읽기 성능 보장. Kafka로 메트릭 이벤트 발행.
+    file: abox/commerce-catalog.yaml
+    repos:
+      - letsgojh0810/commerce-backend
+    infra: [mysql, redis, kafka]
 
   - id: commerce-order
-    path: 이커머스/주문-결제
+    name: 주문·결제·쿠폰
+    summary: 주문 생성·취소, PG 결제(OpenFeign+Resilience4j), 쿠폰 발급·사용. Transactional Outbox로 이벤트 보장.
     file: abox/commerce-order.yaml
-    summary: 주문 생성·결제·환불·쿠폰 적용을 다루는 도메인
     repos:
-      - example-order-api
-    infra:
-      - mysql
-      - redis
-      - kafka
+      - letsgojh0810/commerce-backend
+    infra: [mysql, kafka, pg-gateway]
 
-  - id: commerce-inventory
-    path: 이커머스/재고-관리
-    file: abox/commerce-inventory.yaml
-    summary: 재고 점유·확정·입출고·저재고 알림을 다루는 도메인
+  - id: commerce-queue
+    name: 대기열
+    summary: Redis ZSet 기반 선착순 입장 대기열. 주문 생성 전 입장 토큰 검증으로 트래픽 제어.
+    file: abox/commerce-queue.yaml
     repos:
-      - example-inventory-api
-      - example-inventory-worker
-    infra:
-      - mysql
-      - redis
-      - kafka
+      - letsgojh0810/commerce-backend
+    infra: [redis]
+
+  - id: commerce-ranking
+    name: 랭킹·메트릭
+    summary: Kafka 이벤트 → 실시간 Redis 랭킹 + 메트릭 집계. Spring Batch로 주간/월간 랭킹 생성.
+    file: abox/commerce-ranking.yaml
+    repos:
+      - letsgojh0810/commerce-backend
+    infra: [mysql, redis, kafka]
 
 cross_domain: abox/cross-domain.yaml
 shared_infra: abox/infra.yaml

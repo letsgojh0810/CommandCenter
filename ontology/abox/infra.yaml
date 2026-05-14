@@ -1,50 +1,46 @@
-# 공유 인프라 (Shared Infrastructure)
-# 도메인 간 공통으로 사용되는 인프라 컴포넌트의 인스턴스.
-# 각 도메인 abox 파일에서 `deployed_in` 또는 `depends_on` 관계로 이 entity들을 참조한다.
-#
-# 규칙 (tbox.yaml axiom 참조):
-# - infra entity는 wiki_doc, repo, package 필드를 갖지 않는다.
-# - id는 도메인 전체에서 유일해야 한다.
+# ontology/abox/infra.yaml
+# 공유 인프라 인스턴스. 도메인 abox의 relation에서 참조한다.
 
 entities:
   - id: mysql
-    name: MySQL
+    name: MySQL 8.0
     type: infra
     summary: |
-      메인 RDB. 주문, 회원, 상품 마스터 등 트랜잭션과 강한 일관성이 필요한
-      비즈니스 데이터의 영속 저장소. 도메인별로 논리적 스키마를 분리해 사용한다.
+      전 앱 공통 영속 저장소. modules/jpa가 DataSource·JPA·QueryDSL 설정을 공유.
+      소프트 딜리트(deleted_at) 공통 적용, BaseEntity(id, created_at, updated_at, deleted_at).
 
   - id: redis
-    name: Redis
+    name: Redis (Master/Replica)
     type: infra
     summary: |
-      인메모리 캐시 + 분산 락 + 단기 세션 저장소. 상품 상세 캐시, 재고 차감 시
-      동시성 제어용 분산 락, 장바구니 세션 등에 사용한다.
+      상품 캐시(productDetail TTL 10분, productList TTL 5분),
+      대기열 ZSet(queue:waiting), 입장 토큰(queue:token:{userId}),
+      실시간 랭킹 ZSet. modules/redis가 Master/Replica 설정 공유.
 
   - id: kafka
     name: Kafka
     type: infra
     summary: |
-      도메인 간 이벤트 스트림. 주문 생성/취소, 결제 완료, 재고 변동 등의
-      도메인 이벤트를 비동기로 전파한다. 컨슈머는 도메인별로 group을 분리한다.
+      토픽: catalog-events, order-events, coupon-issue-requests (+ 각 DLQ).
+      modules/kafka가 Producer/Consumer 공통 설정 및 메시지 레코드(CatalogEventMessage, OrderEventMessage) 정의.
+      Consumer: BATCH_LISTENER, Manual ACK, Concurrency=3, 최대 3000건/폴링.
 
-  - id: s3
-    name: S3
+  - id: pg-gateway
+    name: PG (결제 게이트웨이)
+    type: external
+    summary: |
+      외부 결제 대행사. OpenFeign + Resilience4j(CircuitBreaker: pgCircuitBreaker, Retry: pgRetry) 연동.
+      장애 시 Payment를 PENDING 유지, PaymentScheduler가 30초마다 PG 재조회.
+      CardType: SAMSUNG, KB, HYUNDAI, KAKAO, TOSS, NAVER.
+    repo: letsgojh0810/commerce-backend
+    package: apps/commerce-api/src/main/java/com/loopers/infrastructure/pg
+
+  - id: spring-batch
+    name: Spring Batch
     type: infra
     summary: |
-      오브젝트 스토리지. 상품 이미지, 송장/인보이스 PDF 등 바이너리 자산을
-      저장한다. CDN을 통해 외부 노출되며 원본은 비공개 버킷에 둔다.
-
-  - id: elasticsearch
-    name: Elasticsearch
-    type: infra
-    summary: |
-      검색 인덱스. 상품 검색, 카테고리/속성 기반 필터링, 키워드 자동완성에
-      사용한다. MySQL 상품 마스터를 Kafka 이벤트로 동기화한다.
-
-  - id: cloudfront
-    name: CloudFront
-    type: infra
-    summary: |
-      CDN. S3에 저장된 상품 이미지를 전 세계 엣지에서 캐시하여 제공한다.
-      이미지 리사이즈는 엣지 람다에서 처리한다.
+      MetricsSnapshotJob(매일 00:05): product_metrics → product_metrics_daily 증분 스냅샷.
+      RankingCarryOverScheduler(매일 23:50): Redis 랭킹 당일 점수 10% 이월.
+      RankingAggregationJob(commerce-batch): 주간/월간 랭킹 집계 → mv_product_rank_weekly/monthly.
+    repo: letsgojh0810/commerce-backend
+    package: apps/commerce-batch

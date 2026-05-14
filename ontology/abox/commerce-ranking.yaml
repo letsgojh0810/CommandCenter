@@ -1,0 +1,164 @@
+# ontology/abox/commerce-ranking.yaml
+# Kafka 이벤트 기반 실시간 메트릭 집계 + Spring Batch 주간/월간 랭킹 도메인.
+
+domain:
+  id: commerce-ranking
+  name: 랭킹·메트릭
+  summary: |
+    commerce-streamer가 Kafka 이벤트(catalog-events, order-events)를 소비하여
+    product_metrics(조회수·좋아요수·판매수)를 실시간 갱신하고 Redis 랭킹 ZSet에 점수를 적립한다.
+    Spring Batch(MetricsSnapshotJob, RankingAggregationJob)가 일별·주간·월간 집계를 생성한다.
+    점수 공식: 0.1×viewSum + 0.2×likeSum + 0.7×salesSum (TOP 100).
+  wiki_root: wiki/commerce-ranking/
+
+entities:
+  # ── data ─────────────────────────────────────────────────────
+  - id: product-metrics
+    name: 상품 메트릭 (실시간)
+    type: data
+    summary: |
+      테이블 product_metrics (commerce-streamer DB). productId(PK), likeCount, viewCount,
+      salesCount, lastEventVersion. 낙관적 락으로 동시 갱신 충돌 방지.
+      event_handled 테이블로 중복 처리 방지(Idempotency).
+    repo: letsgojh0810/commerce-backend
+    package: apps/commerce-streamer/src/main/java/com/loopers/domain/metrics
+    wiki_doc: wiki/commerce-ranking/메트릭/README.md
+
+  - id: product-metrics-daily
+    name: 상품 메트릭 (일별 스냅샷)
+    type: data
+    summary: |
+      테이블 product_metrics_daily. productId, metricDate, viewCount, likeCount, salesCount.
+      유니크 제약 (product_id, metric_date). MetricsSnapshotJob이 매일 00:05에 전날 증분 저장.
+    repo: letsgojh0810/commerce-backend
+    package: apps/commerce-api/src/main/java/com/loopers/domain/metrics
+    wiki_doc: wiki/commerce-ranking/메트릭/README.md
+
+  - id: rank-weekly
+    name: 주간 랭킹
+    type: data
+    summary: |
+      테이블 mv_product_rank_weekly. productId, score, rankPosition, periodStart, periodEnd, updatedAt.
+      RankingAggregationJob이 주간 단위로 TOP 100 집계.
+    repo: letsgojh0810/commerce-backend
+    package: apps/commerce-api/src/main/java/com/loopers/domain/ranking
+    wiki_doc: wiki/commerce-ranking/랭킹-집계/README.md
+
+  - id: rank-monthly
+    name: 월간 랭킹
+    type: data
+    summary: |
+      테이블 mv_product_rank_monthly. 구조 동일. RankingAggregationJob이 월간 단위 TOP 100 집계.
+    repo: letsgojh0810/commerce-backend
+    package: apps/commerce-api/src/main/java/com/loopers/domain/ranking
+    wiki_doc: wiki/commerce-ranking/랭킹-집계/README.md
+
+  # ── processes ─────────────────────────────────────────────────
+  - id: catalog-event-consumer
+    name: 카탈로그 이벤트 컨슈머
+    type: process
+    summary: |
+      commerce-streamer. catalog-events 토픽 구독(BATCH_LISTENER, Concurrency=3).
+      LIKE_CREATED/LIKE_CANCELLED → MetricsService.upsertLike() → product_metrics 갱신.
+      PRODUCT_VIEWED → MetricsService.upsertView() → product_metrics 갱신.
+      갱신 후 RankingService.addLikeScore()/addViewScore()로 Redis ZSet 점수 적립.
+    repo: letsgojh0810/commerce-backend
+    package: apps/commerce-streamer/src/main/java/com/loopers/interfaces/kafka
+    wiki_doc: wiki/commerce-ranking/메트릭/README.md
+
+  - id: order-event-consumer
+    name: 주문 이벤트 컨슈머
+    type: process
+    summary: |
+      commerce-streamer. order-events 토픽 구독.
+      ORDER_COMPLETED → MetricsService.upsertSales() → product_metrics 갱신.
+      → RankingService.addOrderScore()로 Redis ZSet 점수 적립.
+    repo: letsgojh0810/commerce-backend
+    package: apps/commerce-streamer/src/main/java/com/loopers/interfaces/kafka
+    wiki_doc: wiki/commerce-ranking/랭킹-집계/README.md
+
+  - id: coupon-issue-consumer
+    name: 쿠폰 발급 컨슈머
+    type: process
+    summary: |
+      commerce-streamer. coupon-issue-requests 토픽 구독.
+      CouponIssueService.processIssue() → UserCoupon 생성 → coupon_issue_requests 상태 갱신.
+    repo: letsgojh0810/commerce-backend
+    package: apps/commerce-streamer/src/main/java/com/loopers/interfaces/kafka
+    wiki_doc: wiki/commerce-order/쿠폰-규칙/README.md
+
+  - id: ranking-aggregation
+    name: 랭킹 집계 배치
+    type: process
+    summary: |
+      commerce-batch. RankingAggregationJob: product_metrics_daily → mv_product_rank_weekly/monthly.
+      점수 공식: 0.1×viewSum + 0.2×likeSum + 0.7×salesSum. TOP 100 저장.
+      RankingCarryOverScheduler: 매일 23:50 Redis 랭킹 당일 점수 10% 이월.
+      GET /api/v1/rankings?date=&page=&size=&period=daily|weekly|monthly.
+    repo: letsgojh0810/commerce-backend
+    package: apps/commerce-batch/src/main/java/com/loopers
+    wiki_doc: wiki/commerce-ranking/랭킹-집계/README.md
+
+relations:
+  - from: catalog-event-consumer
+    to: kafka
+    type: consumes
+    note: catalog-events 토픽 구독
+
+  - from: catalog-event-consumer
+    to: product-metrics
+    type: produces
+    note: likeCount, viewCount 실시간 갱신
+
+  - from: catalog-event-consumer
+    to: redis
+    type: produces
+    note: 랭킹 ZSet 점수 적립(addLikeScore, addViewScore)
+
+  - from: order-event-consumer
+    to: kafka
+    type: consumes
+    note: order-events 토픽 구독
+
+  - from: order-event-consumer
+    to: product-metrics
+    type: produces
+    note: salesCount 실시간 갱신
+
+  - from: order-event-consumer
+    to: redis
+    type: produces
+    note: 랭킹 ZSet 점수 적립(addOrderScore)
+
+  - from: ranking-aggregation
+    to: product-metrics-daily
+    type: consumes
+
+  - from: ranking-aggregation
+    to: rank-weekly
+    type: produces
+
+  - from: ranking-aggregation
+    to: rank-monthly
+    type: produces
+
+  - from: ranking-aggregation
+    to: redis
+    type: depends_on
+    note: RankingCarryOverScheduler - 당일 점수 10% 이월
+
+  - from: product-metrics
+    to: mysql
+    type: deployed_in
+
+  - from: product-metrics-daily
+    to: mysql
+    type: deployed_in
+
+  - from: rank-weekly
+    to: mysql
+    type: deployed_in
+
+  - from: rank-monthly
+    to: mysql
+    type: deployed_in

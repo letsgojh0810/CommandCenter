@@ -1,34 +1,61 @@
-# 도메인 간 관계 (Cross-Domain Relations)
-# 둘 이상의 도메인에 걸친 relation만 이 파일에 정의한다.
-# 단일 도메인 내에서 완결되는 relation은 각 도메인 abox 파일에 둔다.
-#
-# from/to 형식: "{도메인id}/{entity-id}"
-# 예: from: commerce-order/order, to: commerce-inventory/stock
-#
-# 도메인 abox가 추가되면 이 파일도 함께 갱신한다.
-# tbox.yaml의 relation_types와 domain_range axiom을 준수한다.
+# ontology/abox/cross-domain.yaml
+# 둘 이상의 도메인에 걸친 relation. from/to: "{도메인id}/{entity-id}"
 
 relations:
-  # 주문 → 카탈로그: 상품 정보·가격 재검증
+  # 주문 → 카탈로그: 재고 차감/복구
   - from: commerce-order/order-placement
     to: commerce-catalog/product
-    type: references
+    type: produces
     note: |
-      주문 생성 시 라인 아이템마다 catalog의 product를 조회해 가격·노출 상태를
-      재검증한다. 장바구니 시점과 결제 시점 가격이 다르면 사용자 확인을 요구.
+      주문 생성 시 product.decreaseStock() 호출로 재고 차감.
+      주문 취소 시 product.increaseStock() 호출로 재고 복구.
 
-  # 주문 → 재고: 동기 RPC로 재고 점유
+  # 주문 → 대기열: 입장 토큰 검증 및 삭제
   - from: commerce-order/order-placement
-    to: commerce-inventory/stock-reservation
-    type: triggers
-    note: |
-      주문 생성 시점에 inventory의 stock-reservation을 동기 RPC로 호출하여
-      재고를 점유한다. 점유 실패 시 주문 생성이 즉시 중단된다.
-
-  # 재고 → 주문: 결제 이벤트 비동기 구독으로 확정/복원
-  - from: commerce-inventory/stock-fulfillment
-    to: commerce-order/order-event
+    to: commerce-queue/entry-token
     type: consumes
     note: |
-      Kafka의 commerce.order.paid / commerce.order.refunded 토픽을 구독하여
-      paid 시 재고 확정, refunded 시 재고 복원을 비동기로 처리한다.
+      X-Entry-Token 헤더가 있으면 QueueService.validateToken()으로 검증.
+      주문 완료 후 해당 사용자 토큰 삭제.
+
+  # 대기열 → 주문 (gate 관계: 대기열이 주문 진입을 제어)
+  - from: commerce-queue/entry-token
+    to: commerce-order/order-placement
+    type: gates
+    note: |
+      입장 토큰 없이도 주문 가능하나, 대기열이 활성화된 경우 토큰 필수.
+      토큰 검증 실패 시 주문 생성 즉시 차단.
+
+  # 랭킹 → 카탈로그: 메트릭 이벤트 소비
+  - from: commerce-ranking/catalog-event-consumer
+    to: commerce-catalog/like-process
+    type: consumes
+    note: |
+      catalog-events 토픽의 LIKE_CREATED / LIKE_CANCELLED / PRODUCT_VIEWED 이벤트 소비.
+      outbox 경유로 발행된 이벤트를 commerce-streamer가 수신.
+
+  # 랭킹 → 주문: 판매 이벤트 소비
+  - from: commerce-ranking/order-event-consumer
+    to: commerce-order/order-placement
+    type: consumes
+    note: |
+      order-events 토픽의 ORDER_COMPLETED 이벤트 소비 → salesCount 갱신 및 랭킹 점수 적립.
+
+  # 랭킹(쿠폰 발급 컨슈머) → 주문: 비동기 쿠폰 발급 처리
+  - from: commerce-ranking/coupon-issue-consumer
+    to: commerce-order/coupon-issuance
+    type: consumes
+    note: |
+      coupon-issue-requests 토픽 소비 → UserCoupon 생성 → coupon_issue_requests 상태 갱신.
+      commerce-streamer에서 처리하므로 commerce-ranking 도메인 파일에 위치.
+
+  # 사용자 → 모든 보호 API (참조 관계)
+  - from: commerce-catalog/product-query
+    to: commerce-user/user
+    type: references
+    note: X-Loopers-LoginId / X-Loopers-LoginPw 헤더로 사용자 인증.
+
+  - from: commerce-order/order-placement
+    to: commerce-user/user
+    type: references
+    note: 주문 생성 시 userId 기반 사용자 조회 및 인증.

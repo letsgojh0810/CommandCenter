@@ -1,72 +1,82 @@
-# Architecture — 주문/결제
+# Architecture — 주문/결제/쿠폰
 
-> 정책 인덱스 + 데이터 흐름. 코드 구조/ERD는 ontology와 코드에 위임합니다.
+> 작성일: 2026-05-14 | 수정일: 2026-05-14 | 유형: 정책 | 관련 레포: letsgojh0810/commerce-backend
 
 ## 정책 인덱스
 
-| 주제 | 책임 entity | 핵심 정책 |
-|------|-------------|----------|
-| [주문 생성](주문-생성/README.md) | `order-placement`, `order` | 가격 재검증, 재고 점유, Kafka 이벤트 발행 |
-| [결제 흐름](결제-흐름/README.md) | `payment-processing`, `payment` | 결제 상태 머신, PG 연동, 실패 복구 |
-| [환불 정책](환불-정책/README.md) | `refund-pipeline`, `payment` | 부분/전체 환불, 결제 수단별 절차 |
-| [쿠폰 규칙](쿠폰-규칙/README.md) | `coupon`, `order-placement` | 중복 사용 차단, 사용량 카운터 |
+| 주제 | 핵심 정책 |
+|------|----------|
+| [주문 생성](주문-생성/README.md) | 대기열 토큰 검증, 재고 차감, 쿠폰 사용, OutboxEvent, 토큰 삭제 |
+| [결제 흐름](결제-흐름/README.md) | PG 연동, CircuitBreaker, PaymentScheduler 30초 재조회 |
+| [쿠폰 규칙](쿠폰-규칙/README.md) | FIXED/RATE 타입, 동기/비동기 발급, UserCoupon 상태 |
+| [환불 정책](환불-정책/README.md) | 주문 취소 기반 환불, 재고·쿠폰 복구, payment_cancel_requests |
 
-## 데이터 흐름
+## 주문 생성 전체 흐름
 
-### 주문 생성 → 결제 완료
+```mermaid
+sequenceDiagram
+    participant Client
+    participant OrderAPI
+    participant Redis as Redis (queue:token)
+    participant ProductDB as Product (stock)
+    participant CouponDB as UserCoupon
+    participant OrderDB as orders / order_items
+    participant OutboxDB as outbox_events
+    participant Scheduler
+    participant Kafka
 
-```
-[구매자]
-   │ 장바구니 → 결제 페이지 → "결제하기"
-   ▼
-order-placement
-   │ 1. 가격 재검증 (카탈로그 도메인 조회)
-   │ 2. 쿠폰 검증·할인 계산
-   │ 3. 재고 점유 요청 (재고 도메인)
-   │ 4. order 레코드 생성 (status=pending)
-   │ 5. order_created 이벤트 발행
-   ▼
-payment-processing
-   │ PG API 호출
-   ├──[성공]──► payment(captured) + order(paid) + paid 이벤트
-   └──[실패]──► payment(failed) + order(payment_failed) + 재고 점유 해제
-```
-
-### 환불 흐름
-
-```
-[구매자/CS]
-   │ 환불 요청 (전체 또는 라인별)
-   ▼
-refund-pipeline
-   │ 1. 환불 가능 여부 검증 (배송 상태, 환불 기한)
-   │ 2. 환불 금액 계산 (쿠폰 회수 포함)
-   │ 3. PG 환불 API 호출 (결제 수단별)
-   │ 4. payment(refunded) + order(refunded/partial_refunded)
-   │ 5. refunded 이벤트 발행
-   ▼
-[재고 도메인이 이벤트 구독 → 재고 복원]
+    Client->>OrderAPI: POST /api/v1/orders
+    OrderAPI->>Redis: 대기열 토큰 검증 (optional)
+    OrderAPI->>ProductDB: decreaseStock()
+    OrderAPI->>CouponDB: 쿠폰 검증·사용 처리
+    OrderAPI->>OrderDB: Order / OrderItem 생성 (PENDING_PAYMENT)
+    OrderAPI->>OutboxDB: OutboxEvent 저장 (BEFORE_COMMIT)
+    OrderAPI->>Redis: 대기열 토큰 삭제
+    Scheduler->>OutboxDB: 1초마다 미발행 이벤트 조회
+    Scheduler->>Kafka: order-events 발행
 ```
 
-## 의존하는 인프라
+## 결제 흐름 (PG + CircuitBreaker)
 
-| infra/external | 용도 |
-|----------------|------|
-| `mysql` | 주문/결제/쿠폰 마스터 |
-| `kafka` | 주문 라이프사이클 이벤트 (`commerce.order.*`) |
-| `redis` | 쿠폰 사용량 카운터, 분산 락 (재고 점유 시) |
-| `pg-gateway` (external) | 외부 PG. 카드/계좌/간편결제별 다른 PG에 연결 |
+```mermaid
+sequenceDiagram
+    participant Client
+    participant PaymentAPI
+    participant PG as PG (OpenFeign)
+    participant CB as CircuitBreaker (pgCircuitBreaker)
+    participant PaymentDB
+    participant PaymentScheduler
 
-## 도메인 경계
+    Client->>PaymentAPI: POST /api/v1/payments
+    PaymentAPI->>CB: @CircuitBreaker + @Retry
+    CB->>PG: PG 결제 요청
+    alt 정상
+        PG-->>PaymentAPI: 성공 응답
+        PaymentAPI->>PaymentDB: Payment → SUCCESS
+    else PG 장애 / CircuitBreaker Open
+        CB-->>PaymentAPI: fallback
+        PaymentAPI->>PaymentDB: Payment 상태 PENDING 유지
+    end
 
-- **소유**: 주문, 결제 레코드, 쿠폰 정책, 주문 이벤트
-- **참조 가능**: 다른 도메인은 주문 ID로 주문 정보를 조회만 가능
-- **외부 통합**:
-  - 상품 정보 → `commerce-catalog`에 조회 (가격·노출 상태)
-  - 재고 점유/복원 → `commerce-inventory`에 요청 (cross-domain.yaml에서 정의 예정)
+    loop 30초마다
+        PaymentScheduler->>PaymentDB: PENDING 결제 조회
+        PaymentScheduler->>PG: PG 재조회
+        PaymentScheduler->>PaymentDB: 결과 반영 (SUCCESS / FAILED)
+    end
 
-## 변경 시 영향
+    Client->>PaymentAPI: POST /api/v1/payments/callback
+    PaymentAPI->>PaymentDB: PG 콜백 수신 → 상태 갱신
+```
 
-- 결제 상태 머신 변경 → CS 운영팀의 수동 보정 절차도 동기 변경 필요
-- 환불 정책 변경 → 회계·정산 시스템에 영향. 정산팀 사전 협의 필수
-- 쿠폰 규칙 변경 → 마케팅·CRM이 발행한 쿠폰들의 유효성을 재검증해야 할 수 있음
+## 정책 테이블
+
+| 항목 | 정책 |
+|------|------|
+| 주문 생성 상태 초기값 | PENDING_PAYMENT |
+| 결제 성공 상태 | PAID |
+| 주문 취소 상태 | CANCELLED |
+| PG 장애 시 동작 | Payment PENDING 유지 → PaymentScheduler 재조회 |
+| Outbox 발행 주기 | 1초 |
+| PaymentScheduler 주기 | 30초 |
+| 쿠폰 타입 | FIXED (고정액), RATE (비율) |
+| 비동기 쿠폰 발급 토픽 | coupon-issue-requests |

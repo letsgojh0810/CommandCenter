@@ -1,0 +1,57 @@
+# ontology/abox/commerce-user.yaml
+# 사용자 회원 가입·인증·프로필 관리 도메인.
+
+domain:
+  id: commerce-user
+  name: 사용자
+  summary: |
+    회원 가입·로그인·프로필 수정·비밀번호 변경을 처리한다.
+    인증은 X-Loopers-LoginId / X-Loopers-LoginPw 헤더 방식이며,
+    모든 보호 API가 이 도메인의 user 조회를 기반으로 인증을 수행한다.
+  wiki_root: wiki/commerce-user/
+
+entities:
+  - id: user
+    name: 사용자
+    type: data
+    summary: |
+      테이블 users. loginId, password(BCrypt), name, birthDate, email, phone, address.
+      소프트 딜리트(@SQLRestriction("deleted_at IS NULL")).
+      비밀번호 정책: 8~16자, 영문·숫자·특수문자 포함, 생년월일 포함 불가.
+    repo: letsgojh0810/commerce-backend
+    package: apps/commerce-api/src/main/java/com/loopers/domain/user
+    wiki_doc: wiki/commerce-user/회원가입-인증/README.md
+
+  - id: user-registration
+    name: 회원 가입
+    type: process
+    summary: |
+      POST /api/v1/users. loginId 중복 확인 → 비밀번호 정책 검증 → BCrypt 인코딩 → users 저장.
+    repo: letsgojh0810/commerce-backend
+    package: apps/commerce-api/src/main/java/com/loopers/interfaces/api/user
+    wiki_doc: wiki/commerce-user/회원가입-인증/README.md
+
+  - id: user-profile
+    name: 프로필 관리
+    type: process
+    summary: |
+      GET /api/v1/users/me (내 정보 조회),
+      PUT /api/v1/users/me (프로필 수정: name, email, phone, address),
+      PUT /api/v1/users/password (비밀번호 변경: 현재 비밀번호 확인 후 교체).
+      어드민: GET/PUT/DELETE /api-admin/v1/users (X-Loopers-Ldap: loopers.admin 헤더 필요).
+    repo: letsgojh0810/commerce-backend
+    package: apps/commerce-api/src/main/java/com/loopers/interfaces/api/user
+    wiki_doc: wiki/commerce-user/회원가입-인증/README.md
+
+relations:
+  - from: user-registration
+    to: user
+    type: produces
+
+  - from: user-profile
+    to: user
+    type: consumes
+
+  - from: user
+    to: mysql
+    type: deployed_in
